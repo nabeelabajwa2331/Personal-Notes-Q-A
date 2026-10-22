@@ -1,28 +1,36 @@
-
-const recentNotes = [
-  {
-    title: "RAG Fundamentals",
-    description: "Understanding retrieval augmented generation and semantic search.",
-    category: "AI & RAG",
-    updated: "Today",
-  },
-  {
-    title: "Docker Networking",
-    description: "Containers, bridge networks, host networks and communication.",
-    category: "Development",
-    updated: "Yesterday",
-  },
-  {
-    title: "React Hooks",
-    description: "useState, useEffect and patterns for managing component state.",
-    category: "Development",
-    updated: "2 days ago",
-  },
-];
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import type { FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import ImportNoteButton from "../notes/ImportNoteButton";
+import { useNotes } from "../../context/NotesContext";
+import { countWords, formatDate, snippet } from "../../utils/format";
 
 function Dashboard() {
+  const { notes, loading, error, refresh } = useNotes();
   const navigate = useNavigate();
+  const [question, setQuestion] = useState("");
+
+  const recentNotes = notes.slice(0, 3);
+  const totalWords = notes.reduce(
+    (total, note) => total + countWords(note.content),
+    0
+  );
+
+  const askQuestion = (value: string) => {
+    const normalized = value.trim();
+
+    if (!normalized) {
+      return;
+    }
+
+    navigate(`/qa?q=${encodeURIComponent(normalized)}`);
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    askQuestion(question);
+  };
+
   return (
     <div className="dashboard">
       <section className="ai-query-section">
@@ -30,34 +38,42 @@ function Dashboard() {
           <div>
             <span className="query-icon">✦</span>
 
-            <span className="query-label">
-              ASK YOUR KNOWLEDGE
-            </span>
+            <span className="query-label">ASK YOUR KNOWLEDGE</span>
           </div>
         </div>
 
-        <div className="query-box">
+        <form className="query-box" onSubmit={handleSubmit}>
           <input
             type="text"
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
             placeholder="Ask anything about your notes..."
+            aria-label="Ask a question about your notes"
           />
 
           <button
+            type="submit"
             className="query-submit"
-            onClick={() => navigate("/qa")}
+            aria-label="Ask question"
           >
             →
           </button>
-        </div>
+        </form>
 
         <div className="query-hint">
           <span>Try asking</span>
 
-          <button>
+          <button
+            type="button"
+            onClick={() => askQuestion("What did I learn about RAG?")}
+          >
             "What did I learn about RAG?"
           </button>
 
-          <button>
+          <button
+            type="button"
+            onClick={() => askQuestion("Summarize my Docker notes")}
+          >
             "Summarize my Docker notes"
           </button>
         </div>
@@ -70,49 +86,87 @@ function Dashboard() {
             <h2>Recent notes</h2>
           </div>
 
-          <button className="view-all-button">
+          <button
+            type="button"
+            className="view-all-button"
+            onClick={() => navigate("/notes")}
+          >
             View all →
           </button>
         </div>
 
-        <div className="notes-grid">
-          {recentNotes.map((note) => (
-            <article className="note-card" key={note.title}>
-              <div className="note-card-top">
-                <span className="note-category">
-                  {note.category}
-                </span>
+        {error ? (
+          <div className="status-panel error-panel">
+            <p>{error}</p>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() => void refresh()}
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="status-panel">Loading notes...</div>
+        ) : recentNotes.length === 0 ? (
+          <div className="empty-panel">
+            <h3>No notes yet</h3>
+            <p>
+              Create your first note or import a PDF/DOCX, then ask
+              questions about it with Notes AI.
+            </p>
 
-                <button className="note-menu">
-                  ···
-                </button>
-              </div>
+            <div className="empty-panel-actions">
+              <Link to="/notes/new" className="primary-button">
+                Create a note
+              </Link>
+              <ImportNoteButton />
+            </div>
+          </div>
+        ) : (
+          <div className="notes-grid">
+            {recentNotes.map((note) => (
+              <Link
+                className="note-card"
+                key={note.id}
+                to={`/notes/${note.id}`}
+              >
+                <div className="note-card-top">
+                  <span className="note-category">Note</span>
+                </div>
 
-              <h3>{note.title}</h3>
+                <h3>{note.title}</h3>
 
-              <p>{note.description}</p>
+                <p>{snippet(note.content, 140)}</p>
 
-              <div className="note-card-footer">
-                <span>{note.updated}</span>
-                <span>↗</span>
-              </div>
-            </article>
-          ))}
-        </div>
+                <div className="note-card-footer">
+                  <span>{formatDate(note.updatedAt)}</span>
+                  <span>↗</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="stats-section">
         <div className="stat-card">
-          <span className="stat-number">12</span>
-          <span className="stat-label">Notes</span>
+          <span className="stat-number">
+            {loading ? "—" : notes.length}
+          </span>
+          <span className="stat-label">
+            {notes.length === 1 ? "Note" : "Notes"}
+          </span>
         </div>
 
         <div className="stat-card">
-          <span className="stat-number">48</span>
-          <span className="stat-label">Knowledge chunks</span>
+          <span className="stat-number">
+            {loading ? "—" : totalWords}
+          </span>
+          <span className="stat-label">Words</span>
         </div>
 
-        <div className="stat-card stat-card-featured">
+        <Link to="/qa" className="stat-card stat-card-featured">
           <div>
             <span className="stat-eyebrow">RAG ASSISTANT</span>
             <span className="stat-featured-title">
@@ -121,7 +175,7 @@ function Dashboard() {
           </div>
 
           <span className="stat-arrow">→</span>
-        </div>
+        </Link>
       </section>
     </div>
   );

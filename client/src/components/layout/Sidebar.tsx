@@ -1,7 +1,10 @@
 import { NavLink, useNavigate } from "react-router-dom";
+import { useNotes } from "../../context/NotesContext";
 
 function Sidebar() {
+  const { notes } = useNotes();
   const navigate = useNavigate();
+
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
@@ -10,6 +13,7 @@ function Sidebar() {
       </div>
 
       <button
+        type="button"
         className="new-note-button"
         onClick={() => navigate("/notes/new")}
       >
@@ -34,6 +38,7 @@ function Sidebar() {
 
           <NavLink
             to="/notes"
+            end
             className={({ isActive }) =>
               `nav-item ${isActive ? "active" : ""}`
             }
@@ -51,45 +56,39 @@ function Sidebar() {
             <span>✦</span>
             Ask AI
           </NavLink>
-
-          <button className="nav-item">
-            <span>☆</span>
-            Favorites
-          </button>
         </div>
 
         <div className="nav-section">
-          <span className="nav-label">Collections</span>
+          <span className="nav-label">Recent</span>
 
-          <button className="nav-item">
-            <span className="collection-dot" />
-            AI & RAG
-          </button>
-
-          <button className="nav-item">
-            <span className="collection-dot" />
-            Development
-          </button>
-
-          <button className="nav-item">
-            <span className="collection-dot" />
-            Projects
-          </button>
+          {notes.length === 0 ? (
+            <span className="nav-empty">No notes yet</span>
+          ) : (
+            notes.slice(0, 4).map((note) => (
+              <NavLink
+                key={note.id}
+                to={`/notes/${note.id}`}
+                className={({ isActive }) =>
+                  `nav-item ${isActive ? "active" : ""}`
+                }
+              >
+                <span className="collection-dot" />
+                <span className="nav-note-title">{note.title}</span>
+              </NavLink>
+            ))
+          )}
         </div>
       </nav>
 
       <div className="sidebar-bottom">
-        <button className="nav-item">
-          <span>⚙</span>
-          Settings
-        </button>
-
         <div className="user-card">
           <div className="avatar">U</div>
 
           <div className="user-info">
             <span className="user-name">Your Workspace</span>
-            <span className="user-status">Personal</span>
+            <span className="user-status">
+              {notes.length} {notes.length === 1 ? "note" : "notes"}
+            </span>
           </div>
         </div>
       </div>

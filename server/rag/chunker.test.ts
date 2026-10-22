@@ -1,4 +1,4 @@
-import { chunkText } from "./chunker";
+import { chunkText } from "./chunker.js";
 const document = `
 # Docker Networking
 

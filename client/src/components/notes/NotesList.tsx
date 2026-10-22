@@ -1,69 +1,76 @@
-const notes = [
-  {
-    id: 1,
-    title: "RAG Fundamentals",
-    category: "AI & RAG",
-    preview:
-      "Retrieval-Augmented Generation allows an LLM to retrieve external information...",
-    updated: "Today",
-  },
-  {
-    id: 2,
-    title: "Docker Networking",
-    category: "Development",
-    preview:
-      "Docker networking allows containers to communicate with each other...",
-    updated: "Yesterday",
-  },
-  {
-    id: 3,
-    title: "React Hooks",
-    category: "Development",
-    preview:
-      "useState and useEffect are fundamental React hooks for managing...",
-    updated: "2 days ago",
-  },
-  {
-    id: 4,
-    title: "PostgreSQL Notes",
-    category: "Development",
-    preview:
-      "PostgreSQL provides powerful relational database capabilities...",
-    updated: "4 days ago",
-  },
-];
+import type { Note } from "../../api";
+import { formatDate, snippet } from "../../utils/format";
 
-function NotesList() {
+interface NotesListProps {
+  notes: Note[];
+  selectedId?: string;
+  loading: boolean;
+  error: string | null;
+  onSelect: (noteId: string) => void;
+  onRetry: () => void;
+}
+
+function NotesList({
+  notes,
+  selectedId,
+  loading,
+  error,
+  onSelect,
+  onRetry,
+}: NotesListProps) {
   return (
     <div className="notes-list">
       <div className="notes-list-header">
         <span>Notes</span>
-        <span>{notes.length}</span>
+        <span>{loading ? "…" : notes.length}</span>
       </div>
 
       <div className="notes-list-items">
-        {notes.map((note, index) => (
-          <button
-            key={note.id}
-            className={`notes-list-item ${
-              index === 0 ? "selected" : ""
-            }`}
-          >
-            <div className="notes-list-item-top">
-              <span className="notes-list-category">
-                {note.category}
-              </span>
+        {error ? (
+          <div className="notes-list-status">
+            <p>{error}</p>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={onRetry}
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
+          <p className="notes-list-status">Loading notes...</p>
+        ) : notes.length === 0 ? (
+          <p className="notes-list-status">
+            No notes yet. Create your first note.
+          </p>
+        ) : (
+          notes.map((note) => {
+            const isSelected = note.id === selectedId;
 
-              <span className="notes-list-date">
-                {note.updated}
-              </span>
-            </div>
+            return (
+              <button
+                type="button"
+                key={note.id}
+                className={`notes-list-item ${
+                  isSelected ? "selected" : ""
+                }`}
+                onClick={() => onSelect(note.id)}
+                aria-current={isSelected ? "page" : undefined}
+              >
+                <div className="notes-list-item-top">
+                  <span className="notes-list-category">Note</span>
+                  <span className="notes-list-date">
+                    {formatDate(note.updatedAt)}
+                  </span>
+                </div>
 
-            <h3>{note.title}</h3>
+                <h3>{note.title}</h3>
 
-            <p>{note.preview}</p>
-          </button>
-        ))}
+                <p>{snippet(note.content, 100)}</p>
+              </button>
+            );
+          })
+        )}
       </div>
     </div>
   );
