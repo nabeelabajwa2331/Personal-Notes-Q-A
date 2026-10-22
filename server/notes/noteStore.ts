@@ -51,7 +51,9 @@ function getPool(): Pool {
 }
 
 function toIsoString(value: Date | string): string {
-  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
 }
 
 function rowToNote(row: NoteRow): Note {

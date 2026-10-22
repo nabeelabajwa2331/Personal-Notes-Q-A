@@ -12,6 +12,7 @@ The UI uses a dark black/gray theme and is fully connected to the backend: notes
 ## Current capabilities
 
 - Notes CRUD through the UI and REST API
+- PostgreSQL persistence when `DATABASE_URL` is configured
 - Import PDF (`.pdf`) and Word (`.docx`) documents as notes
 - Dashboard with live note counts and the most recently updated notes
 - Notes list, create route (`/notes/new`), and note detail/edit route (`/notes/:id`)
@@ -162,6 +163,12 @@ npm run dev
 
 The notes table and index are created automatically on startup. If `DATABASE_URL` is unset, local development and the test suite continue to use memory.
 
+You can also create `server/.env` instead of setting the variable in your shell:
+
+```dotenv
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_notes
+```
+
 ## Deploy to Render
 
 The repository includes a [`render.yaml`](render.yaml) Blueprint with two services and a database:
@@ -226,6 +233,8 @@ VITE_API_URL=https://api.example.com npm run build
 > **Render builds on Linux, where paths are case-sensitive.** Keep the backend directory committed as lowercase `server/`, not `Server/`.
 
 > **Free-tier caveat:** free web services sleep after inactivity, so the first request after a quiet period can take a while. Notes are stored in PostgreSQL and survive web-service restarts and redeploys. However, **Free Render Postgres expires 30 days after creation**. Upgrade the database to a paid plan before then for permanent storage; after the 14-day grace period, Render deletes the database and its data. The API also has no authentication, so anyone with the URL can read and modify notes.
+
+> **Permanent storage:** change the database plan in `render.yaml` from `free` to `0.1c-256mb` (paid), or set `DATABASE_URL` to an external persistent PostgreSQL service such as Neon or Supabase.
 
 ## Frontend routes and controls
 
