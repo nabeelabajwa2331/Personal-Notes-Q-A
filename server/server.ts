@@ -9,7 +9,7 @@ import {
 } from "./notes/noteStore.js";
 
 const PORT = Number(process.env.PORT ?? 5000);
-const STORAGE_ATTEMPTS = 5;
+const STORAGE_ATTEMPTS = 10;
 
 if (
   process.env.NODE_ENV === "production" &&
@@ -31,8 +31,11 @@ async function initializeStorage(): Promise<void> {
         throw error;
       }
 
+      const message =
+        error instanceof Error ? error.message : String(error);
+
       console.warn(
-        `Note storage is not ready (attempt ${attempt}/${STORAGE_ATTEMPTS}). Retrying in 3 seconds...`
+        `Note storage is not ready (attempt ${attempt}/${STORAGE_ATTEMPTS}): ${message}. Retrying in 3 seconds...`
       );
       await sleep(3000);
     }

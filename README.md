@@ -203,11 +203,24 @@ Create **one** Render web service from the repository root, plus one PostgreSQL 
 | `NODE_ENV` | `production` |
 | `SERVE_CLIENT` | `true` |
 | `CLIENT_DIST_PATH` | `./client/dist` |
+| `DATABASE_SSL` | `true` for Render Postgres |
 | `DATABASE_URL` | Internal Database URL from your Render Postgres |
 
 Do not set `PORT`; Render provides it automatically. Use the database's **Internal Database URL** from its **Connect** menu. It is private and faster than the external URL. If you use an external provider such as Neon, add its connection string instead (usually with `?sslmode=require`).
 
+`DATABASE_SSL=true` encrypts the connection without requiring Render's self-signed certificate to chain to a public CA. Set `DATABASE_SSL=false` only if your database does not support TLS.
+
 The server creates the `notes` table and index on startup. In production, it refuses to start without `DATABASE_URL` so notes are never silently stored in memory.
+
+### If PostgreSQL reports “Connection terminated unexpectedly”
+
+1. Confirm the database status is **Available**, not suspended or expired.
+2. Create the database in the **same region** as the web service.
+3. Copy the **Internal Database URL**, not the external URL.
+4. Keep `DATABASE_SSL=true` for Render Postgres.
+5. Redeploy after changing environment variables.
+
+The deploy log now prints the database host, port, and whether SSL is enabled without exposing the password.
 
 ### Production build locally
 

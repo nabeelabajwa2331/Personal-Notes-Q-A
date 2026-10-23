@@ -22,21 +22,95 @@ interface NoteRow {
   updated_at: Date | string;
 }
 
+interface DatabaseConfig {
+  connectionString: string;
+  host: string;
+  port: string;
+  sslEnabled: boolean;
+  ssl: { rejectUnauthorized: boolean } | undefined;
+}
+
 const databaseUrl = process.env.DATABASE_URL?.trim();
 const memoryNotes = new Map<string, Note>();
 
 let pool: Pool | null = null;
+let databaseConfig: DatabaseConfig | null | undefined;
 
 export const usesPersistentStorage = Boolean(databaseUrl);
 
-function getPool(): Pool {
+function getDatabaseConfig(): DatabaseConfig | null {
+  if (databaseConfig !== undefined) {
+    return databaseConfig;
+  }
+
   if (!databaseUrl) {
+    databaseConfig = null;
+    return databaseConfig;
+  }
+
+  const normalizedUrl = databaseUrl.replace(/^['"]|['"]$/g, "");
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalizedUrl);
+  } catch {
+    throw new Error(
+      "DATABASE_URL is not a valid PostgreSQL connection URL. Copy the Internal Database URL from Render again."
+    );
+  }
+
+  if (
+    (parsed.protocol !== "postgres:" &&
+      parsed.protocol !== "postgresql:") ||
+    !parsed.hostname
+  ) {
+    throw new Error(
+      "DATABASE_URL must start with postgresql:// and include the database host. Copy the Internal Database URL from Render again."
+    );
+  }
+
+  const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+  const sslOverride = process.env.DATABASE_SSL?.trim().toLowerCase();
+  const sslEnabled =
+    sslOverride === "true" ||
+    (sslOverride !== "false" &&
+      (sslMode === "require" ||
+        sslMode === "prefer" ||
+        sslMode === "verify-ca" ||
+        sslMode === "verify-full"));
+
+  // Render's internal database certificates are self-signed. Encrypt the
+  // connection without requiring a public chain unless verification was
+  // explicitly requested.
+  const verifyCertificate =
+    sslMode === "verify-ca" || sslMode === "verify-full";
+  parsed.searchParams.delete("sslmode");
+
+  const config: DatabaseConfig = {
+    connectionString: parsed.toString(),
+    host: parsed.hostname,
+    port: parsed.port || "5432",
+    sslEnabled,
+    ssl: sslEnabled
+      ? { rejectUnauthorized: verifyCertificate }
+      : undefined,
+  };
+
+  databaseConfig = config;
+  return config;
+}
+
+function getPool(): Pool {
+  const config = getDatabaseConfig();
+
+  if (!config) {
     throw new Error("DATABASE_URL is not configured.");
   }
 
   if (!pool) {
     pool = new Pool({
-      connectionString: databaseUrl,
+      connectionString: config.connectionString,
+      ssl: config.ssl,
       max: 5,
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 10_000,
@@ -75,7 +149,9 @@ function copyNote(note: Note): Note {
  * development and the test suite fall back to in-memory storage.
  */
 export async function initNoteStore(): Promise<void> {
-  if (!databaseUrl) {
+  const config = getDatabaseConfig();
+
+  if (!config) {
     if (process.env.NODE_ENV === "production") {
       throw new Error(
         "DATABASE_URL is required when NODE_ENV=production. Connect a PostgreSQL database so notes are not lost."
@@ -84,6 +160,12 @@ export async function initNoteStore(): Promise<void> {
 
     return;
   }
+
+  console.log(
+    `Connecting to PostgreSQL at ${config.host}:${config.port} (SSL ${
+      config.sslEnabled ? "enabled" : "disabled"
+    })`
+  );
 
   const db = getPool();
 
