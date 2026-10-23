@@ -31,7 +31,7 @@ The UI uses a dark black/gray theme and is fully connected to the backend: notes
 ## Project structure
 
 ```text
-render.yaml                   Render Blueprint for the API and static site
+render.yaml                   Render Blueprint for the single web service and database
 client/
   src/
     api.ts                    Typed Notes and Ask API client
@@ -132,7 +132,7 @@ For a production build where the API is on a different origin, set `VITE_API_URL
 VITE_API_URL=https://api.example.com npm run build
 ```
 
-When the API is served from the same origin, leave `VITE_API_URL` unset. A bare Render hostname such as `personal-notes-qa-api.onrender.com` is also accepted; the client adds `https://`.
+When the API is served from the same origin, leave `VITE_API_URL` unset. A bare hostname such as `api.example.com` is also accepted; the client adds `https://`.
 
 ### Durable local storage
 
@@ -171,64 +171,55 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_notes
 
 ## Deploy to Render
 
-The repository includes a [`render.yaml`](render.yaml) Blueprint with two services and a database:
+The repository includes a [`render.yaml`](render.yaml) Blueprint with one web service and a PostgreSQL database:
 
-- **`personal-notes-qa-api`** — Node web service running the Express API
-- **`personal-notes-qa-web`** — static site serving the built React app
-- **`personal-notes-qa-db`** — Render Postgres database connected through `DATABASE_URL`
+- **`personal-notes-q-a`** — Node service that serves the React app and the Express API from the same URL
+- **`personal-notes-q-a-db`** — Render Postgres database connected through `DATABASE_URL`
 
 ### Deploy with the Blueprint
 
 1. Push the repository to GitHub, GitLab, or Bitbucket.
 2. In the [Render Dashboard](https://dashboard.render.com/), choose **New → Blueprint**.
-3. Select the repository and apply the Blueprint.
-4. Render creates the database and both services, then deploys them.
-5. Open the static site URL shown for `personal-notes-qa-web`.
+3. If a failed service named `personal-notes-q-a` already exists, delete that **web service** first. Do not delete an existing database.
+4. Select the repository and apply the Blueprint.
+5. Render creates the database and the web service, then deploys them.
+6. Open `https://personal-notes-q-a.onrender.com`.
 
-If a service name is already taken in your workspace, rename it in `render.yaml` and update the matching `fromService.name` reference.
+If the service name is already taken by another Render service in your workspace, rename it in `render.yaml`.
 
-The frontend receives the backend URL through `VITE_API_URL`, which the Blueprint references from the API service. If your Render workspace does not resolve that reference, set `VITE_API_URL` manually on the static site to `https://<your-api-service>.onrender.com` and redeploy the frontend. `VITE_API_URL` is compiled into the frontend at build time, so changing it always requires a new frontend deploy.
+The React build is served by Express, so no `VITE_API_URL` is needed. The browser calls `/api` on the same origin.
 
 ### Manual setup instead of the Blueprint
 
-**Backend web service**
+Create **one** Render web service from the repository root, plus one PostgreSQL database.
 
 | Setting | Value |
 | --- | --- |
-| Root directory | `server` |
-| Build command | `npm ci --include=dev && npm run build` |
-| Start command | `npm start` |
+| Root directory | repository root (leave blank) |
+| Build command | `cd server && npm ci --include=dev && npm run build && cd ../client && npm ci --include=dev && npm run build` |
+| Start command | `node server/dist/server.js` |
 | Health check path | `/api/health` |
-| Node version | `22.12.0` |
-| Environment variables | `DATABASE_URL=<internal Postgres connection string>`<br>`NODE_ENV=production` |
+| `NODE_VERSION` | `22.12.0` |
+| `NODE_ENV` | `production` |
+| `SERVE_CLIENT` | `true` |
+| `CLIENT_DIST_PATH` | `./client/dist` |
+| `DATABASE_URL` | Internal Database URL from your Render Postgres |
 
-Use the database's **Internal Database URL** from its **Connect** menu. It is private and faster than the external URL. If you use an external provider such as Neon, add its connection string instead (usually with `?sslmode=require`).
+Do not set `PORT`; Render provides it automatically. Use the database's **Internal Database URL** from its **Connect** menu. It is private and faster than the external URL. If you use an external provider such as Neon, add its connection string instead (usually with `?sslmode=require`).
 
-**Static site**
-
-| Setting | Value |
-| --- | --- |
-| Build command | `cd client && npm ci --include=dev && npm run build` |
-| Publish directory | `client/dist` |
-| Node version | `22.12.0` |
-| Environment variable | `VITE_API_URL=https://<your-api-service>.onrender.com` |
-
-Add a rewrite rule from `/*` to `/index.html` so React Router routes work on refresh.
+The server creates the `notes` table and index on startup. In production, it refuses to start without `DATABASE_URL` so notes are never silently stored in memory.
 
 ### Production build locally
 
-```bash
-cd server
-npm run build
-npm start
-```
-
-The compiled server runs from `server/dist`. The frontend production build is:
+From the repository root:
 
 ```bash
-cd client
-VITE_API_URL=https://api.example.com npm run build
+cd client && npm ci --include=dev && npm run build && cd ..
+cd server && npm ci --include=dev && npm run build && cd ..
+SERVE_CLIENT=true CLIENT_DIST_PATH=./client/dist DATABASE_URL=postgresql://... NODE_ENV=production node server/dist/server.js
 ```
+
+On Windows PowerShell, set the variables with `$env:NAME = "value"` before the last command.
 
 > **Render builds on Linux, where paths are case-sensitive.** Keep the backend directory committed as lowercase `server/`, not `Server/`.
 

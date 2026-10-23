@@ -76,6 +76,12 @@ function copyNote(note: Note): Note {
  */
 export async function initNoteStore(): Promise<void> {
   if (!databaseUrl) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "DATABASE_URL is required when NODE_ENV=production. Connect a PostgreSQL database so notes are not lost."
+      );
+    }
+
     return;
   }
 
@@ -101,6 +107,20 @@ export async function closeNoteStore(): Promise<void> {
   if (pool) {
     await pool.end();
     pool = null;
+  }
+}
+
+export async function checkNoteStore(): Promise<boolean> {
+  if (!databaseUrl) {
+    return true;
+  }
+
+  try {
+    await getPool().query("SELECT 1");
+    return true;
+  } catch (error) {
+    console.error("PostgreSQL health check failed:", error);
+    return false;
   }
 }
 
