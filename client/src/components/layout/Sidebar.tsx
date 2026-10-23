@@ -1,9 +1,49 @@
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { backupApi } from "../../api";
+import { useAuth } from "../../context/AuthContext";
 import { useNotes } from "../../context/NotesContext";
+
+type BackupState = "idle" | "working" | "success" | "error";
 
 function Sidebar() {
   const { notes } = useNotes();
+  const { logout } = useAuth();
   const navigate = useNavigate();
+  const [backupState, setBackupState] =
+    useState<BackupState>("idle");
+  const [backupMessage, setBackupMessage] = useState<string | null>(
+    null
+  );
+
+  const handleBackup = async () => {
+    setBackupState("working");
+    setBackupMessage(null);
+
+    try {
+      const { blob, filename } = await backupApi.download();
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+
+      setBackupState("success");
+      setBackupMessage("Encrypted backup downloaded.");
+    } catch (error) {
+      setBackupState("error");
+      setBackupMessage(
+        error instanceof Error
+          ? error.message
+          : "Could not create a backup."
+      );
+    }
+  };
 
   return (
     <aside className="sidebar">
@@ -81,6 +121,29 @@ function Sidebar() {
       </nav>
 
       <div className="sidebar-bottom">
+        <div className="sidebar-actions">
+          <button
+            type="button"
+            className="sidebar-action-button"
+            onClick={() => void handleBackup()}
+            disabled={backupState === "working"}
+          >
+            <span aria-hidden="true">⤓</span>
+            {backupState === "working"
+              ? "Encrypting..."
+              : "Encrypted backup"}
+          </button>
+
+          {backupMessage ? (
+            <span
+              className={`backup-message ${backupState}`}
+              role="status"
+            >
+              {backupMessage}
+            </span>
+          ) : null}
+        </div>
+
         <div className="user-card">
           <div className="avatar">U</div>
 
@@ -90,6 +153,15 @@ function Sidebar() {
               {notes.length} {notes.length === 1 ? "note" : "notes"}
             </span>
           </div>
+
+          <button
+            type="button"
+            className="logout-button"
+            onClick={() => void logout()}
+            title="Sign out"
+          >
+            Sign out
+          </button>
         </div>
       </div>
     </aside>

@@ -2,6 +2,7 @@ import "dotenv/config";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import app from "./app.js";
+import { validateAuthConfiguration } from "./auth/config.js";
 import {
   closeNoteStore,
   initNoteStore,
@@ -17,6 +18,16 @@ if (
 ) {
   console.error(
     "DATABASE_URL is required when NODE_ENV=production. Connect a PostgreSQL database so notes are not lost."
+  );
+  process.exit(1);
+}
+
+try {
+  validateAuthConfiguration();
+} catch (error) {
+  console.error(
+    "Authentication is not configured correctly:",
+    error instanceof Error ? error.message : error
   );
   process.exit(1);
 }
@@ -56,6 +67,12 @@ const server = app.listen(PORT, () => {
       usesPersistentStorage
         ? "PostgreSQL"
         : "in-memory (data will be lost on restart)"
+    }`
+  );
+  console.log("Password gate: enabled");
+  console.log(
+    `Encrypted backups: ${
+      process.env.BACKUP_PASSWORD?.trim() ? "enabled" : "not configured"
     }`
   );
 });

@@ -5,9 +5,17 @@ import type { Server } from "node:http";
 import app from "../app.js";
 import { noteStore } from "../notes/noteStore.js";
 import type { AskResult } from "./askService.js";
+import {
+  configureAuthForTests,
+  installCookieFetch,
+  loginTestUser,
+} from "../test/authTestUtils.js";
+
+configureAuthForTests();
 
 let server: Server;
 let baseUrl = "";
+let restoreFetch: (() => void) | undefined;
 
 before(async () => {
   server = app.listen(0);
@@ -19,9 +27,12 @@ before(async () => {
 
   const address = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${address.port}`;
+  restoreFetch = installCookieFetch(await loginTestUser(baseUrl));
 });
 
 after(async () => {
+  restoreFetch?.();
+
   await new Promise<void>((resolve, reject) => {
     server.close((error) => {
       if (error) {

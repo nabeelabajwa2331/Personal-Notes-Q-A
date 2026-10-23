@@ -12,6 +12,9 @@ The UI uses a dark black/gray theme and is fully connected to the backend: notes
 ## Current capabilities
 
 - Notes CRUD through the UI and REST API
+- Password gate with signed, HttpOnly session cookies
+- CORS restricted to the app origin (and localhost in development)
+- CSRF-resistant mutating requests through SameSite cookies and Origin checks
 - PostgreSQL persistence when `DATABASE_URL` is configured
 - Import PDF (`.pdf`) and Word (`.docx`) documents as notes
 - Dashboard with live note counts and the most recently updated notes
@@ -21,8 +24,8 @@ The UI uses a dark black/gray theme and is fully connected to the backend: notes
 - Ask AI from the dashboard or the Q&A page
 - Ask AI directly from an open note with the editor's **Ask AI** button
 - Answers are generated from your own notes and include source cards that link back to the note
+- Encrypted AES-256-GCM backup export with a password-derived key
 - JSON error responses without stack traces
-- CORS enabled for separate frontend and API origins
 
 > **Ask AI is local retrieval, not an external generative AI service.** Answers are assembled from the most relevant passages in your notes. No API keys, external LLM, embeddings, or vector database are required at this stage.
 
@@ -36,9 +39,12 @@ client/
   src/
     api.ts                    Typed Notes and Ask API client
     context/
+      AuthContext.ts          Authentication state and useAuth hook
+      AuthProvider.tsx        Session check, login, and logout state
       NotesContext.ts         Shared notes context and useNotes hook
       NotesProvider.tsx       Notes loading and CRUD state
     components/
+      auth/                   Login screen and authentication gate
       dashboard/              Dashboard and recent notes
       layout/                 App shell, search dialog, sidebar
       notes/                  Notes list, page, editor, and document import
@@ -47,9 +53,21 @@ client/
     index.css                 Application styling
   vite.config.ts              API development proxy
 server/
-  app.ts                      Express app, CORS, JSON errors
+  app.ts                      Express app, CORS, auth, JSON errors
   server.ts                   HTTP server startup
   tsconfig.build.json         Production TypeScript build to dist/
+  .env.example                Local environment template (no secrets)
+  auth/
+    config.ts                 Environment validation and cookie settings
+    session.ts                Signed session token creation and verification
+    authRouter.ts             Login, logout, and session status routes
+    requireAuth.ts            Protected-route middleware
+    origin.ts                 CORS allowlist and same-origin checks
+    auth.test.ts              Authentication, CORS, and backup tests
+  backup/
+    backupService.ts          AES-256-GCM encrypted backup format
+    backupRouter.ts           Authenticated backup export endpoint
+    decryptBackup.ts          Local CLI to decrypt an exported backup
   notes/
     noteStore.ts              Note types, PostgreSQL storage, and in-memory fallback
     notesRouter.ts            Notes routes, validation, and file upload
@@ -62,6 +80,8 @@ server/
     qa.test.ts                Ask API integration tests
   rag/
     chunker.ts                Text chunking used by retrieval
+  test/
+    authTestUtils.ts          Shared test login and cookie helpers
 ```
 
 ## Requirements
@@ -83,6 +103,31 @@ npm install
 ## Running locally
 
 The frontend and backend run in separate terminals.
+
+### 0. Configure the password gate
+
+The backend refuses to start without authentication settings. Copy `server/.env.example` to `server/.env` and fill in the values, or create `server/.env` manually:
+
+```dotenv
+APP_PASSWORD=choose-a-long-password
+SESSION_SECRET=replace-with-a-long-random-value
+BACKUP_PASSWORD=choose-a-separate-backup-password
+```
+
+- `APP_PASSWORD` is the password you enter on the login screen. Use at least 8 characters; 16 or more is recommended.
+- `SESSION_SECRET` signs session cookies. Use a long random value of at least 32 characters. Changing it signs out every active session.
+- `BACKUP_PASSWORD` encrypts exported backups. It is never stored in the backup file, so keep a copy somewhere safe.
+- Optional: `SESSION_TTL_HOURS` controls session lifetime. The default is `168` (7 days); allowed values are 1–720.
+
+Generate random values with Node.js:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+For local development, the login cookie is not marked `Secure` because the app runs over HTTP. In production it is `Secure`, `HttpOnly`, and `SameSite=Strict` by default. Set `COOKIE_SECURE=false` only if you intentionally run a production-like build over plain HTTP.
+
+The login screen appears before the workspace. If a session expires or becomes invalid, protected API requests return `401` and the app returns to the login screen.
 
 ### 1. Start the backend
 
@@ -182,8 +227,13 @@ The repository includes a [`render.yaml`](render.yaml) Blueprint with one web se
 2. In the [Render Dashboard](https://dashboard.render.com/), choose **New → Blueprint**.
 3. If a failed service named `personal-notes-q-a` already exists, delete that **web service** first. Do not delete an existing database.
 4. Select the repository and apply the Blueprint.
-5. Render creates the database and the web service, then deploys them.
-6. Open `https://personal-notes-q-a.onrender.com`.
+5. Render prompts for `APP_PASSWORD`, `SESSION_SECRET`, and `BACKUP_PASSWORD` because they are marked `sync: false`. Enter strong, unique values.
+6. Render creates the database and the web service, then deploys them.
+7. Open `https://personal-notes-q-a.onrender.com` and sign in with `APP_PASSWORD`.
+
+The service trusts Render's `RENDER_EXTERNAL_URL` as the allowed CORS origin. If you attach a custom domain, add it to `APP_ORIGIN` as a comma-separated list, for example `https://notes.example.com,https://www.notes.example.com`, then redeploy. Local development automatically allows the Vite ports.
+
+If you already created the web service before authentication was added, add `APP_PASSWORD`, `SESSION_SECRET`, `BACKUP_PASSWORD`, and `COOKIE_SECURE=true` in **Environment** and redeploy.
 
 If the service name is already taken by another Render service in your workspace, rename it in `render.yaml`.
 
@@ -204,7 +254,12 @@ Create **one** Render web service from the repository root, plus one PostgreSQL 
 | `SERVE_CLIENT` | `true` |
 | `CLIENT_DIST_PATH` | `./client/dist` |
 | `DATABASE_SSL` | `true` for Render Postgres |
+| `COOKIE_SECURE` | `true` |
+| `APP_PASSWORD` | A strong password for the login screen |
+| `SESSION_SECRET` | A long random value (32+ characters) |
+| `BACKUP_PASSWORD` | A separate password used to encrypt backups |
 | `DATABASE_URL` | Internal Database URL from your Render Postgres |
+| `APP_ORIGIN` | Optional: your custom HTTPS origin, e.g. `https://notes.example.com` |
 
 Do not set `PORT`; Render provides it automatically. Use the database's **Internal Database URL** from its **Connect** menu. It is private and faster than the external URL. If you use an external provider such as Neon, add its connection string instead (usually with `?sslmode=require`).
 
@@ -229,14 +284,17 @@ From the repository root:
 ```bash
 cd client && npm ci --include=dev && npm run build && cd ..
 cd server && npm ci --include=dev && npm run build && cd ..
-SERVE_CLIENT=true CLIENT_DIST_PATH=./client/dist DATABASE_URL=postgresql://... NODE_ENV=production node server/dist/server.js
+SERVE_CLIENT=true CLIENT_DIST_PATH=./client/dist \
+DATABASE_URL=postgresql://... \
+APP_PASSWORD=... SESSION_SECRET=... BACKUP_PASSWORD=... \
+COOKIE_SECURE=true NODE_ENV=production node server/dist/server.js
 ```
 
 On Windows PowerShell, set the variables with `$env:NAME = "value"` before the last command.
 
 > **Render builds on Linux, where paths are case-sensitive.** Keep the backend directory committed as lowercase `server/`, not `Server/`.
 
-> **Free-tier caveat:** free web services sleep after inactivity, so the first request after a quiet period can take a while. Notes are stored in PostgreSQL and survive web-service restarts and redeploys. However, **Free Render Postgres expires 30 days after creation**. Upgrade the database to a paid plan before then for permanent storage; after the 14-day grace period, Render deletes the database and its data. The API also has no authentication, so anyone with the URL can read and modify notes.
+> **Free-tier caveat:** free web services sleep after inactivity, so the first request after a quiet period can take a while. Notes are stored in PostgreSQL and survive web-service restarts and redeploys. However, **Free Render Postgres expires 30 days after creation**. Upgrade the database to a paid plan before then for permanent storage; after the 14-day grace period, Render deletes the database and its data. The app is protected by a single shared password; it does not yet support multiple user accounts or per-user note separation.
 
 > **Permanent storage:** change the database plan in `render.yaml` from `free` to `0.1c-256mb` (paid), or set `DATABASE_URL` to an external persistent PostgreSQL service such as Neon or Supabase.
 
@@ -259,6 +317,61 @@ On Windows PowerShell, set the variables with `$env:NAME = "value"` before the l
 - **Import PDF/DOCX** on the Notes page (and the dashboard empty state) opens the device file picker.
 - An imported file becomes a regular note whose title comes from the filename and whose content is the extracted text.
 - Unknown frontend routes redirect to the dashboard.
+
+## Authentication
+
+The app uses one shared password. The login screen exchanges it for a signed session cookie; the cookie is `HttpOnly`, `SameSite=Strict`, and `Secure` in production. It is not readable by JavaScript.
+
+| Method | Endpoint | Purpose | Auth |
+| --- | --- | --- | --- |
+| `GET` | `/api/auth/me` | Return whether the current session is valid | Public |
+| `POST` | `/api/auth/login` | Exchange the password for a session cookie | Public |
+| `POST` | `/api/auth/logout` | Clear the session cookie | Public |
+| `GET` | `/api/health` | Service and storage health | Public |
+| `GET/POST/PUT/DELETE` | `/api/notes...` | Notes and imports | Required |
+| `POST` | `/api/ask` | Ask AI | Required |
+| `GET` | `/api/backup/export` | Download an encrypted backup | Required |
+
+Log in and use a cookie jar with curl:
+
+```bash
+curl -c cookies.txt -X POST http://localhost:5000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"password":"your-app-password"}'
+
+curl -b cookies.txt http://localhost:5000/api/notes
+```
+
+Wrong passwords return `401` with a generic error. Login attempts are limited to 10 per IP address per 15 minutes. Sessions last 7 days by default; set `SESSION_TTL_HOURS` to change that. Because sessions are stateless signed cookies, changing `SESSION_SECRET` invalidates every existing session. Logging out clears the browser cookie; a previously copied cookie remains valid until it expires.
+
+CORS is no longer open to every origin. Allowed origins come from:
+
+- `RENDER_EXTERNAL_URL` on Render
+- `APP_ORIGIN` (comma-separated custom origins)
+- Local Vite origins in development
+
+Mutating requests from an unapproved `Origin` are rejected with `403` before they reach a route. The app is designed to be served from the same origin as the API.
+
+## Encrypted backups
+
+Use **Encrypted backup** in the sidebar to download all notes as an encrypted `.json.enc` file. You can also call the endpoint directly:
+
+```bash
+curl -b cookies.txt \
+  -o personal-notes-backup.json.enc \
+  http://localhost:5000/api/backup/export
+```
+
+The backup is a JSON envelope containing a random scrypt salt and AES-256-GCM ciphertext. The plaintext notes are never included in the downloaded file. `BACKUP_PASSWORD` is the only key needed to decrypt it, so store that password separately from the backup.
+
+Decrypt an exported backup locally:
+
+```bash
+cd server
+npm run backup:decrypt -- ../personal-notes-backup.json.enc
+```
+
+The decrypted JSON is written next to the encrypted file. The export is intentionally read-only; restoring is a deliberate manual step so an accidental click cannot overwrite your current notes.
 
 ## Ask AI API
 
@@ -335,8 +448,9 @@ Each note has the following shape:
 | `PUT` | `/api/notes/:id` | Replace a note's title and content | `200` |
 | `DELETE` | `/api/notes/:id` | Delete a note | `204` |
 | `POST` | `/api/ask` | Ask a question about the notes | `200` |
+| `GET` | `/api/backup/export` | Download an encrypted backup | `200` |
 
-`GET /` and `GET /api/health` remain available for basic server checks. The health response reports the active store:
+`GET /` and `GET /api/health` remain available for basic server checks. All notes, import, Ask AI, and backup endpoints require a valid session cookie. The health response reports the active store:
 
 ```json
 {"status":"ok","storage":"postgres"}
@@ -384,6 +498,8 @@ Imported notes are regular notes, so they can be searched, edited, deleted, and 
 Internal stack traces are never included in API responses.
 
 ## Example requests
+
+The notes examples assume you have logged in and saved the session cookie with `curl -c cookies.txt` as shown in [Authentication](#authentication); add `-b cookies.txt` to each request.
 
 ### Create a note
 
@@ -473,7 +589,7 @@ npm run build
 npm run lint
 ```
 
-The backend test suite covers the Notes API, PDF/DOCX import, and Ask AI API, including validation, invalid files, grounded answers, word-form matching, and the no-match fallback.
+The backend test suite covers the Notes API, PDF/DOCX import, Ask AI API, authentication, session cookies, CORS origin checks, and encrypted backup export/decryption. It includes validation, invalid files, grounded answers, word-form matching, and the no-match fallback.
 
 ## Current limitations and next steps
 
@@ -483,5 +599,8 @@ The backend test suite covers the Notes API, PDF/DOCX import, and Ask AI API, in
 - Legacy `.doc` files are not supported; use `.docx` or PDF.
 - Ask AI uses lexical retrieval, not embeddings or a generative LLM, so synonyms and paraphrases may be missed.
 - Q&A conversations are not stored.
-- There is no authentication or multi-user separation yet.
-- Planned next steps include authentication, embeddings/vector search, and optionally an LLM for generated answers while preserving grounded source citations.
+- There is one shared password and no multi-user separation yet.
+- Sessions are stateless signed cookies; logging out clears the cookie but does not revoke a copied token before it expires.
+- Encrypted backups are export-only; restoring is a manual decryption step.
+- CORS and `Origin` checks protect browser requests, but the app is still a single-user personal tool rather than a hardened multi-tenant service.
+- Planned next steps include optional per-user accounts, automated encrypted restore, embeddings/vector search, and optionally an LLM for generated answers while preserving grounded source citations.

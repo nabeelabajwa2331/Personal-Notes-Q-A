@@ -3,6 +3,13 @@ import path from "node:path";
 import cors from "cors";
 import express from "express";
 import type { ErrorRequestHandler } from "express";
+import authRouter from "./auth/authRouter.js";
+import {
+  isAllowedOrigin,
+  isSameOriginRequest,
+} from "./auth/origin.js";
+import { requireAuth } from "./auth/requireAuth.js";
+import backupRouter from "./backup/backupRouter.js";
 import notesRouter from "./notes/notesRouter.js";
 import {
   checkNoteStore,
@@ -19,12 +26,62 @@ const clientIndexPath = path.join(clientDistPath, "index.html");
 const canServeClient = serveClient && existsSync(clientIndexPath);
 
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=()"
+  );
+
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader(
+      "Strict-Transport-Security",
+      "max-age=31536000; includeSubDomains"
+    );
+  }
+
   next();
 });
-app.use(cors());
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || isAllowedOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+  })
+);
+app.use((req, res, next) => {
+  if (
+    req.method === "GET" ||
+    req.method === "HEAD" ||
+    req.method === "OPTIONS"
+  ) {
+    next();
+    return;
+  }
+
+  const origin = req.headers.origin;
+
+  if (
+    origin &&
+    !isAllowedOrigin(origin) &&
+    !isSameOriginRequest(req)
+  ) {
+    res.status(403).json({ error: "Origin not allowed." });
+    return;
+  }
+
+  next();
+});
 app.use(express.json({ limit: "5mb" }));
 
 if (!serveClient) {
@@ -42,8 +99,10 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-app.use("/api/notes", notesRouter);
-app.use("/api/ask", qaRouter);
+app.use("/api/auth", authRouter);
+app.use("/api/notes", requireAuth, notesRouter);
+app.use("/api/ask", requireAuth, qaRouter);
+app.use("/api/backup", requireAuth, backupRouter);
 
 if (canServeClient) {
   console.log(`Serving React client from ${clientDistPath}`);

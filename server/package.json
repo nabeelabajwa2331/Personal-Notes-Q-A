@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test notes/notes.test.ts notes/import.test.ts qa/qa.test.ts"
+    "test": "tsx --test --test-concurrency=1 notes/notes.test.ts notes/import.test.ts qa/qa.test.ts auth/auth.test.ts",
+    "backup:decrypt": "tsx backup/decryptBackup.ts"
   },
   "keywords": [],
   "author": "",

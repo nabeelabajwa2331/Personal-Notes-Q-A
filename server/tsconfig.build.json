@@ -10,6 +10,8 @@
   "include": [
     "app.ts",
     "server.ts",
+    "auth/**/*.ts",
+    "backup/**/*.ts",
     "notes/**/*.ts",
     "qa/**/*.ts",
     "rag/**/*.ts"
